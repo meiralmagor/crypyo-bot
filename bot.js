@@ -14,60 +14,82 @@ const exchange = new ccxt.bybit();
 
 const watchlist = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'DOGE/USDT', 'PEPE/USDT', 'WIF/USDT', 'BONK/USDT'];
 
-bot.sendMessage(chatId, "🚀 מאיר, הבוט חזר למצב עבודה מקצועי!\n💰 יעד: 10$ לעסקה\n⏱️ סריקה: כל 5 דקות");
+bot.sendMessage(chatId, "🚀 מאיר, הבוט המלא באוויר!\n📊 סיכום יומי פעיל\n🛡️ יחס סיכון/סיכוי 1:3 מוגדר");
 
+async function getNewsSentiment() {
+    try {
+        const response = await axios.get('https://cryptopanic.com/api/v1/posts/?auth_token=wlkH1JdX7Rtn8BOklWBTZT3dWrLk29YS&public=true');
+        let score = 50;
+        response.data.results.slice(0, 10).forEach(post => {
+            const t = post.title.toLowerCase();
+            if(t.includes('bullish') || t.includes('pump')) score += 5;
+            if(t.includes('bearish') || t.includes('drop')) score -= 5;
+        });
+        return score;
+    } catch (e) { return 50; }
+}
+
+// פונקציית סיכום יומי
+async function sendDailyReport() {
+    let report = "📅 **סיכום שוק יומי למאיר** 📅\n\n";
+    const sentiment = await getNewsSentiment();
+    report += `🌍 סנטימנט חדשות: ${sentiment > 50 ? "חיובי ✅" : "שלילי ❌"} (${sentiment}/100)\n\n`;
+
+    for (const symbol of watchlist) {
+        try {
+            const ticker = await exchange.fetchTicker(symbol);
+            const change = ticker.percentage;
+            const price = ticker.last;
+            const ohlcv = await exchange.fetchOHLCV(symbol, '1h', undefined, 200);
+            const closes = ohlcv.map(v => v[4]);
+            const rsi = RSI.calculate({ values: closes, period: 14 }).pop();
+            const ema200 = EMA.calculate({ values: closes, period: 200 }).pop();
+            
+            let reason = price > ema200 ? "מגמה עולה" : "מגמה יורדת";
+            const emoji = change >= 0 ? "📈" : "📉";
+            report += `${emoji} **${symbol}**: ${change.toFixed(2)}% | RSI: ${rsi.toFixed(0)}\n🧐 ${reason}\n\n`;
+        } catch (e) { console.log(e.message); }
+    }
+    await bot.sendMessage(chatId, report);
+}
+
+// סורק איתותים עם יחס 1:3
 async function masterTradingBot() {
-    console.log('--- סריקה מקצועית ב-Bybit ---');
     for (const symbol of watchlist) {
         try {
             const ohlcv = await exchange.fetchOHLCV(symbol, '5m', undefined, 200);
             const closes = ohlcv.map(val => val[4]);
-            const volumes = ohlcv.map(val => val[5]);
             const highs = ohlcv.map(val => val[2]);
-            const lows = ohlcv.map(val => val[3]);
-            
             const currentPrice = closes[closes.length - 1];
-            const currentVolume = volumes[volumes.length - 1];
-            const avgVolume = volumes.slice(-20).reduce((a, b) => a + b) / 20;
-
             const rsi = RSI.calculate({ values: closes, period: 14 }).pop();
             const ema200 = EMA.calculate({ values: closes, period: 200 }).pop();
             const boxHigh = Math.max(...highs.slice(-20, -1));
-            const boxLow = Math.min(...lows.slice(-20, -1));
 
             let signal = "";
-            let winChance = 60;
+            if (currentPrice > ema200 && rsi <= 40) signal = "LONG 🟢";
+            else if (currentPrice < ema200 && rsi >= 60) signal = "SHORT 🔴";
 
-            if (currentPrice > ema200 && rsi <= 40) {
-                signal = "LONG 🟢";
-                winChance += (rsi <= 30 ? 15 : 5);
-            } else if (currentPrice < ema200 && rsi >= 60) {
-                signal = "SHORT 🔴";
-                winChance += (rsi >= 70 ? 15 : 5);
-            }
-
-            if (signal !== "" && winChance >= 60) {
+            if (signal !== "") {
                 const targetProfit = 10; 
-                const tpPercent = 0.015; 
+                const tpPercent = 0.015; // 1.5% רווח
+                const slPercent = 0.005; // 0.5% הפסד (יחס 1:3)
+                
                 const amount = targetProfit / (currentPrice * tpPercent);
                 const tpPrice = signal === "LONG 🟢" ? currentPrice * (1 + tpPercent) : currentPrice * (1 - tpPercent);
+                const slPrice = signal === "LONG 🟢" ? currentPrice * (1 - slPercent) : currentPrice * (1 + slPercent);
 
-                const msg = `🎲 **איתות Scalping (${winChance.toFixed(0)}%)** 🎲\n\n` +
-                            `🪙 מטבע: **${symbol}**\n` +
-                            `📊 פעולה: **${signal}**\n` +
-                            `💰 כמות לרווח 10$: **${amount.toFixed(symbol.includes('PEPE') ? 0 : 3)}**\n` +
-                            `🎯 יעד (TP): $${tpPrice.toFixed(symbol.includes('PEPE') ? 8 : 4)}`;
-                await bot.sendMessage(chatId, msg);
+                await bot.sendMessage(chatId, `🎲 **איתות 1:3 (Bybit)** 🎲\n🪙 **${symbol}**\n📊 **${signal}**\n💰 מחיר: $${currentPrice}\n\n✅ יעד (10$+): $${tpPrice.toFixed(4)}\n🛑 סטופ (3.3$-): $${slPrice.toFixed(4)}\n🛒 כמות: ${amount.toFixed(3)}`);
             }
 
-            // פריצת בוקס
-            if (currentPrice > boxHigh && currentVolume > avgVolume * 1.3) {
-                await bot.sendMessage(chatId, `📦 **פריצת בוקס** 📦\n🚀 **${symbol}** פרץ למעלה!\n📌 מחיר: $${currentPrice}`);
+            if (currentPrice > boxHigh) {
+                await bot.sendMessage(chatId, `📦 **פריצת בוקס ב-${symbol}**!`);
             }
-
         } catch (e) { console.log(e.message); }
     }
 }
 
-setInterval(masterTradingBot, 300000); 
+setInterval(masterTradingBot, 300000); // איתותים כל 5 דקות
+setInterval(sendDailyReport, 86400000); // דו"ח כל 24 שעות
+
+sendDailyReport(); // שלח דו"ח מיד עם ההפעלה
 masterTradingBot();
