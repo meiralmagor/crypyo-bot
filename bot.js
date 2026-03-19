@@ -11,7 +11,7 @@ const token = '8207677885:AAFxWZHismMi_pLgNlyV1CX8q_rwZF2l78k';
 const chatId = '1153254394';
 const bot = new TelegramBot(token, { polling: false });
 
-// --- שינוי קריטי: עוברים ל-BYBIT כדי לעקוף את החסימה של Render ---
+// עובדים עם Bybit כדי לעקוף חסימות
 const exchange = new ccxt.bybit(); 
 
 const watchlist = [
@@ -19,7 +19,7 @@ const watchlist = [
     'DOGE/USDT', 'PEPE/USDT', 'WIF/USDT', 'BONK/USDT'
 ];
 
-bot.sendMessage(chatId, "✅ מאיר, עברנו לנתונים של Bybit! החסימה של Binance נעקפה.");
+bot.sendMessage(chatId, "✅ מאיר, המערכת עודכנה לנתוני Bybit!\n💰 יעד רווח: 10$\n📦 שיטת הבוקס פעילה!");
 
 async function getNewsSentiment() {
     try {
@@ -60,6 +60,7 @@ async function masterTradingBot() {
             let signal = "";
             let winChance = 58;
 
+            // אסטרטגיית Scalping
             if (currentPrice > ema200 && rsi <= 40) {
                 signal = "LONG 🟢";
                 winChance = 60 + (rsi <= 30 ? 12 : 0) + (currentVolume > avgVolume ? 6 : 0);
@@ -83,6 +84,14 @@ async function masterTradingBot() {
                             `🎯 יעד: $${tpPrice.toFixed(symbol.includes('PEPE') ? 8 : 4)}`;
                 await bot.sendMessage(chatId, msg);
             }
+
+            // --- הוספתי כאן את הודעת הבוקס שהייתה חסרה לך ---
+            if (currentPrice > boxHigh && currentVolume > avgVolume * 1.3) {
+                await bot.sendMessage(chatId, `📦 **פריצת בוקס (Bybit)** 📦\n🚀 **${symbol}** יצא למעלה!\n📌 מחיר: $${currentPrice}`);
+            } else if (currentPrice < boxLow && currentVolume > avgVolume * 1.3) {
+                await bot.sendMessage(chatId, `📦 **שבירת בוקס (Bybit)** 📦\n📉 **${symbol}** נשבר למטה!\n📌 מחיר: $${currentPrice}`);
+            }
+
         } catch (e) { console.log("Bybit Error: " + e.message); }
     }
 }
