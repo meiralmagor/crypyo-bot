@@ -1,87 +1,99 @@
 require('dotenv').config();
+// שרת קטן כדי ש-Render לא יכבה את הבוט
 const http = require('http');
-http.createServer((req, res) => { res.end('Bot Active'); }).listen(process.env.PORT || 3000);
+http.createServer((req, res) => {
+  res.write('Bot is Running!');
+  res.end();
+}).listen(process.env.PORT || 3000);
 
 const TelegramBot = require('node-telegram-bot-api');
 const ccxt = require('ccxt');
+const { RSI } = require('technicalindicators');
 const axios = require('axios');
-const { RSI, EMA } = require('technicalindicators');
 
-const token = process.env.TELEGRAM_TOKEN;
-const chatId = process.env.CHAT_ID;
+// --- הגדרות חיבור ישירות (כדי למנוע תקלות בענן) ---
+const token = '8207677885:AAFxWZHismMi_pLgNlyV1CX8q_rwZF2l78k';
+const chatId = '1153254394';
+// ------------------------------------------------
+
 const bot = new TelegramBot(token, { polling: false });
+const exchange = new ccxt.binance();
 
-// מעבר לביננס כדי לעקוף את החסימה של Bybit ב-Render
-const exchange = new ccxt.binance({ 'enableRateLimit': true }); 
+const watchlist = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT'];
 
-const watchlist = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'PEPE/USDT', 'DOGE/USDT'];
+// הודעת פתיחה כדי שנדע שהבוט עלה בהצלחה
+bot.sendMessage(chatId, "🚀 מאיר, הבוט רץ עכשיו מהענן ומחובר לבורסה!");
 
-bot.sendMessage(chatId, "🚀 בוס, הבוט המאוחד באוויר (Binance)!\n📊 אחוזים, סנטימנט ודופק פעילים.");
-
+// פונקציה לסריקת חדשות בזמן אמת
 async function getNewsSentiment() {
     try {
         const response = await axios.get('https://cryptopanic.com/api/v1/posts/?auth_token=wlkH1JdX7Rtn8BOklWBTZT3dWrLk29YS&public=true');
-        let score = 50;
-        response.data.results.slice(0, 10).forEach(post => {
-            const t = post.title.toLowerCase();
-            if(t.includes('bullish') || t.includes('pump')) score += 5;
-            if(t.includes('bearish') || t.includes('drop')) score -= 5;
+        const news = response.data.results;
+        
+        const positiveWords = ['bullish', 'launch', 'buy', 'pump', 'adoption', 'ETF', 'approved', 'moon'];
+        const negativeWords = ['bearish', 'hack', 'sell', 'dump', 'ban', 'scam', 'crash', 'lawsuit', 'drop'];
+        
+        let score = 50; 
+        news.slice(0, 10).forEach(post => {
+            const title = post.title.toLowerCase();
+            positiveWords.forEach(word => { if(title.includes(word)) score += 5; });
+            negativeWords.forEach(word => { if(title.includes(word)) score -= 5; });
         });
         return score;
-    } catch (e) { return 50; }
-}
-
-async function sendHeartbeat() {
-    try {
-        const sentiment = await getNewsSentiment();
-        let statusMsg = `💓 **עדכון דופק (15 דק')**\n🌍 סנטימנט עולם: ${sentiment}/100\n\n`;
-        for (const symbol of ['BTC/USDT', 'SOL/USDT']) {
-            const ohlcv = await exchange.fetchOHLCV(symbol, '5m', undefined, 20);
-            const closes = ohlcv.map(v => v[4]);
-            const rsi = RSI.calculate({ values: closes, period: 14 }).pop();
-            statusMsg += `🔹 **${symbol}**: RSI הוא ${rsi.toFixed(0)}\n`;
-        }
-        await bot.sendMessage(chatId, statusMsg);
-    } catch (e) { console.log("Heartbeat error: " + e.message); }
-}
-
-async function masterTradingBot() {
-    const sentiment = await getNewsSentiment();
-    for (const symbol of watchlist) {
-        try {
-            const ohlcv = await exchange.fetchOHLCV(symbol, '5m', undefined, 200);
-            const closes = ohlcv.map(val => val[4]);
-            const currentPrice = closes[closes.length - 1];
-            const rsi = RSI.calculate({ values: closes, period: 14 }).pop();
-            const ema200 = EMA.calculate({ values: closes, period: 200 }).pop();
-
-            let signal = "";
-            if (currentPrice > ema200 && rsi <= 40) signal = "LONG 🟢";
-            else if (currentPrice < ema200 && rsi >= 60) signal = "SHORT 🔴";
-
-            if (signal !== "") {
-                const tpPercent = 1.5; 
-                const slPercent = 0.5; 
-                
-                const tpPrice = signal === "LONG 🟢" ? currentPrice * (1 + tpPercent/100) : currentPrice * (1 - tpPercent/100);
-                const slPrice = signal === "LONG 🟢" ? currentPrice * (1 - slPercent/100) : currentPrice * (1 + slPercent/100);
-
-                const msg = `🎲 **איתות 1:3** 🎲\n\n` +
-                            `🪙 **${symbol}** | **${signal}**\n` +
-                            `🌍 סנטימנט: ${sentiment}/100\n` +
-                            `💰 מחיר: $${currentPrice}\n` +
-                            `✅ יעד: $${tpPrice.toFixed(4)} (+${tpPercent}%)\n` +
-                            `🛑 סטופ: $${slPrice.toFixed(4)} (-${slPercent}%)\n\n` +
-                            `⚖️ יחס סיכון/סיכוי: 1:3`;
-
-                await bot.sendMessage(chatId, msg);
-            }
-        } catch (e) { console.log(e.message); }
+    } catch (e) {
+        return 50; 
     }
 }
 
-setInterval(masterTradingBot, 300000); 
-setInterval(sendHeartbeat, 900000); 
+async function masterTradingBot() {
+    console.log('--- סריקה משולבת: ' + new Date().toLocaleTimeString() + ' ---');
+    const sentiment = await getNewsSentiment();
+    
+    for (const symbol of watchlist) {
+        try {
+            const ohlcv = await exchange.fetchOHLCV(symbol, '5m', undefined, 50);
+            const closes = ohlcv.map(val => val[4]);
+            const currentPrice = closes[closes.length - 1];
+            const rsiValues = RSI.calculate({ values: closes, period: 14 });
+            const rsi = rsiValues[rsiValues.length - 1];
 
+            let signal = "";
+            let strength = "";
+
+            if (rsi <= 30 && sentiment > 55) {
+                signal = "LONG 🟢";
+                strength = "חזק (שילוב טכני + חדשות טובות)";
+            } else if (rsi >= 70 && sentiment < 45) {
+                signal = "SHORT 🔴";
+                strength = "חזק (שילוב טכני + חדשות רעות)";
+            } else if (rsi <= 25) {
+                signal = "LONG 🟡";
+                strength = "בינוני (טכני בלבד - מכירות יתר)";
+            } else if (rsi >= 75) {
+                signal = "SHORT 🟠";
+                strength = "בינוני (טכני בלבד - קניות יתר)";
+            }
+
+            if (signal !== "") {
+                const tp = signal.includes("LONG") ? currentPrice * 1.015 : currentPrice * 0.985;
+                const sl = signal.includes("LONG") ? currentPrice * 0.99 : currentPrice * 1.01;
+
+                const msg = `💎 **איתות VIP משולב** 💎\n\n` +
+                            `🪙 מטבע: ${symbol}\n` +
+                            `📊 פעולה: **${signal}**\n` +
+                            `🔥 עוצמה: ${strength}\n` +
+                            `💰 כניסה: $${currentPrice}\n` +
+                            `🗞️ סנטימנט חדשות: ${sentiment}/100\n\n` +
+                            `🎯 **ניהול עסקה:**\n` +
+                            `✅ יעד רווח: $${tp.toFixed(2)}\n` +
+                            `🛑 סטופ לוס: $${sl.toFixed(2)}`;
+                
+                await bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+            }
+        } catch (e) { console.error("Error on " + symbol + ": " + e.message); }
+    }
+}
+
+// הפעלה ראשונית וקביעת מרווח זמן (כל 5 דקות)
+setInterval(masterTradingBot, 300000); 
 masterTradingBot();
-sendHeartbeat();
