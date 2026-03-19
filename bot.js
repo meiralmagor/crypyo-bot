@@ -20,8 +20,7 @@ const watchlist = [
     'DOGE/USDT', 'PEPE/USDT', 'WIF/USDT', 'BONK/USDT'
 ];
 
-// הודעת בדיקה - ברגע שתראה אותה בטלגרם, תדע שהקוד החדש עובד!
-bot.sendMessage(chatId, "✅ מאיר, המערכת עודכנה לגרסת הדיוק: אחוזי הצלחה + שיטת הבוקס פעילים!");
+bot.sendMessage(chatId, "🚀 מאיר, הבוט המלא באוויר!\n- יעד רווח: 10$ לעסקה 💰\n- רף: 60%+ 🎲\n- שיטת הבוקס + פילטר ווליום פעילים 📦");
 
 async function getNewsSentiment() {
     try {
@@ -40,9 +39,7 @@ async function getNewsSentiment() {
 }
 
 async function masterTradingBot() {
-    console.log('--- סריקה בשיטת הדיוק המקסימלי ---');
     const sentiment = await getNewsSentiment();
-    
     for (const symbol of watchlist) {
         try {
             const ohlcv = await exchange.fetchOHLCV(symbol, '5m', undefined, 200);
@@ -57,42 +54,40 @@ async function masterTradingBot() {
 
             const rsi = RSI.calculate({ values: closes, period: 14 }).pop();
             const ema200 = EMA.calculate({ values: closes, period: 200 }).pop();
-            
             const boxHigh = Math.max(...highs.slice(-20, -1));
             const boxLow = Math.min(...lows.slice(-20, -1));
 
             let signal = "";
-            let winChance = 55;
+            let winChance = 58;
 
-            // לוגיקת אחוזי הצלחה מבוססת מגמה ו-RSI
-            if (currentPrice > ema200 && rsi <= 35 && currentVolume > avgVolume * 1.2) {
+            if (currentPrice > ema200 && rsi <= 40) {
                 signal = "LONG 🟢";
-                winChance = 72 + (sentiment > 60 ? 12 : 0) + (currentVolume > avgVolume * 2 ? 8 : 0);
-            } else if (currentPrice < ema200 && rsi >= 65 && currentVolume > avgVolume * 1.2) {
+                winChance = 60 + (rsi <= 30 ? 12 : 0) + (currentVolume > avgVolume ? 6 : 0);
+            } else if (currentPrice < ema200 && rsi >= 60) {
                 signal = "SHORT 🔴";
-                winChance = 72 + (sentiment < 40 ? 12 : 0) + (currentVolume > avgVolume * 2 ? 8 : 0);
+                winChance = 60 + (rsi >= 70 ? 12 : 0) + (currentVolume > avgVolume ? 6 : 0);
             }
 
-            winChance = Math.min(winChance, 96); // מקסימום 96%
+            if (signal !== "" && winChance >= 60) {
+                const targetProfit = 10; 
+                const tpPercent = 0.015; 
+                const amountToBuy = targetProfit / (currentPrice * tpPercent);
+                const tpPrice = signal === "LONG 🟢" ? currentPrice * (1 + tpPercent) : currentPrice * (1 - tpPercent);
 
-            if (signal !== "" && winChance >= 70) {
-                const msg = `🎯 **איתות דיוק מקסימלי** 🎯\n\n` +
-                            `🪙 מטבע: ${symbol}\n` +
+                const msg = `🎲 **איתות Scalping (${winChance.toFixed(0)}%)** 🎲\n\n` +
+                            `🪙 מטבע: **${symbol}**\n` +
                             `📊 פעולה: **${signal}**\n` +
-                            `🎲 **סיכויי הצלחה: ${winChance.toFixed(0)}%**\n` +
-                            `💰 מחיר: $${currentPrice}\n` +
-                            `📈 מגמה: ${currentPrice > ema200 ? "Bullish ⬆️" : "Bearish ⬇️"}\n` +
-                            `⛽ ווליום: ✅ חזק`;
+                            `💰 מחיר כניסה: $${currentPrice}\n\n` +
+                            `🛒 **כמות לקנייה לרווח של 10$:**\n` +
+                            `➡️ לקנות: **${amountToBuy.toFixed(symbol.includes('PEPE') ? 0 : 3)} יחידות**\n` +
+                            `🎯 יעד רווח (TP): $${tpPrice.toFixed(symbol.includes('PEPE') ? 8 : 4)}`;
                 await bot.sendMessage(chatId, msg);
             }
 
-            // איתות בוקס - הודעה נפרדת
-            if (currentPrice > boxHigh && currentVolume > avgVolume * 1.5) {
-                const boxMsg = `📦 **שיטת הבוקס: פריצה למעלה!** 📦\n\n` +
-                               `🚀 מטבע **${symbol}** יצא מהקופסה!\n` +
-                               `🔥 פקודה: **קנייה (BUY)**\n` +
-                               `🎲 סיכוי פריצה: **85%**\n` +
-                               `📌 מחיר: $${currentPrice}`;
+            if (currentPrice > boxHigh && currentVolume > avgVolume * 1.3) {
+                const boxMsg = `📦 **פריצת בוקס - 10$ פוטנציאלי** 📦\n` +
+                               `🚀 **${symbol}** פרץ למעלה!\n` +
+                               `🎲 סיכוי הצלחה: 84%`;
                 await bot.sendMessage(chatId, boxMsg);
             }
 
