@@ -4,34 +4,49 @@ http.createServer((req, res) => { res.end('Bot Active'); }).listen(process.env.P
 
 const TelegramBot = require('node-telegram-bot-api');
 const ccxt = require('ccxt');
+const axios = require('axios');
 const { RSI, EMA } = require('technicalindicators');
 
 const token = process.env.TELEGRAM_TOKEN;
 const chatId = process.env.CHAT_ID;
 const bot = new TelegramBot(token, { polling: false });
-const exchange = new ccxt.bybit(); 
+
+// מעבר לביננס כדי לעקוף את החסימה של Bybit ב-Render
+const exchange = new ccxt.binance({ 'enableRateLimit': true }); 
 
 const watchlist = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'PEPE/USDT', 'DOGE/USDT'];
 
-bot.sendMessage(chatId, "✅ מאיר, הבוט עודכן! תקבל עדכון סטטוס בכל 15 דקות.");
+bot.sendMessage(chatId, "🚀 בוס, הבוט המאוחד באוויר (Binance)!\n📊 אחוזים, סנטימנט ודופק פעילים.");
 
-// פונקציה לשליחת עדכון "אני חי"
+async function getNewsSentiment() {
+    try {
+        const response = await axios.get('https://cryptopanic.com/api/v1/posts/?auth_token=wlkH1JdX7Rtn8BOklWBTZT3dWrLk29YS&public=true');
+        let score = 50;
+        response.data.results.slice(0, 10).forEach(post => {
+            const t = post.title.toLowerCase();
+            if(t.includes('bullish') || t.includes('pump')) score += 5;
+            if(t.includes('bearish') || t.includes('drop')) score -= 5;
+        });
+        return score;
+    } catch (e) { return 50; }
+}
+
 async function sendHeartbeat() {
     try {
-        let statusMsg = "💓 **עדכון דופק (כל 15 דק')** 💓\n\n";
-        for (const symbol of ['BTC/USDT', 'SOL/USDT', 'PEPE/USDT']) {
+        const sentiment = await getNewsSentiment();
+        let statusMsg = `💓 **עדכון דופק (15 דק')**\n🌍 סנטימנט עולם: ${sentiment}/100\n\n`;
+        for (const symbol of ['BTC/USDT', 'SOL/USDT']) {
             const ohlcv = await exchange.fetchOHLCV(symbol, '5m', undefined, 20);
             const closes = ohlcv.map(v => v[4]);
             const rsi = RSI.calculate({ values: closes, period: 14 }).pop();
             statusMsg += `🔹 **${symbol}**: RSI הוא ${rsi.toFixed(0)}\n`;
         }
-        statusMsg += "\n🔍 ממשיך לסרוק איתותים 1:3...";
         await bot.sendMessage(chatId, statusMsg);
     } catch (e) { console.log("Heartbeat error: " + e.message); }
 }
 
 async function masterTradingBot() {
-    console.log(`--- סריקה ב-Bybit: ${new Date().toLocaleTimeString()} ---`);
+    const sentiment = await getNewsSentiment();
     for (const symbol of watchlist) {
         try {
             const ohlcv = await exchange.fetchOHLCV(symbol, '5m', undefined, 200);
@@ -45,24 +60,28 @@ async function masterTradingBot() {
             else if (currentPrice < ema200 && rsi >= 60) signal = "SHORT 🔴";
 
             if (signal !== "") {
-                const targetProfit = 10; 
-                const tpPercent = 0.015; 
-                const slPercent = 0.005; 
+                const tpPercent = 1.5; 
+                const slPercent = 0.5; 
                 
-                const amount = targetProfit / (currentPrice * tpPercent);
-                const tpPrice = signal === "LONG 🟢" ? currentPrice * (1 + tpPercent) : currentPrice * (1 - tpPercent);
-                const slPrice = signal === "LONG 🟢" ? currentPrice * (1 - slPercent) : currentPrice * (1 + slPercent);
+                const tpPrice = signal === "LONG 🟢" ? currentPrice * (1 + tpPercent/100) : currentPrice * (1 - tpPercent/100);
+                const slPrice = signal === "LONG 🟢" ? currentPrice * (1 - slPercent/100) : currentPrice * (1 + slPercent/100);
 
-                await bot.sendMessage(chatId, `🎲 **איתות 1:3** 🎲\n🪙 **${symbol}**\n📊 **${signal}**\n💰 מחיר: $${currentPrice}\n✅ יעד: $${tpPrice.toFixed(4)}\n🛑 סטופ: $${slPrice.toFixed(4)}`);
+                const msg = `🎲 **איתות 1:3** 🎲\n\n` +
+                            `🪙 **${symbol}** | **${signal}**\n` +
+                            `🌍 סנטימנט: ${sentiment}/100\n` +
+                            `💰 מחיר: $${currentPrice}\n` +
+                            `✅ יעד: $${tpPrice.toFixed(4)} (+${tpPercent}%)\n` +
+                            `🛑 סטופ: $${slPrice.toFixed(4)} (-${slPercent}%)\n\n` +
+                            `⚖️ יחס סיכון/סיכוי: 1:3`;
+
+                await bot.sendMessage(chatId, msg);
             }
         } catch (e) { console.log(e.message); }
     }
 }
 
-// סריקה רגילה כל 5 דקות
 setInterval(masterTradingBot, 300000); 
-
-// עדכון דופק למאיר כל 15 דקות
 setInterval(sendHeartbeat, 900000); 
 
 masterTradingBot();
+sendHeartbeat();
