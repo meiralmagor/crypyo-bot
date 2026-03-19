@@ -1,9 +1,6 @@
 require('dotenv').config();
 const http = require('http');
-http.createServer((req, res) => {
-  res.write('Bot is Running!');
-  res.end();
-}).listen(process.env.PORT || 3000);
+http.createServer((req, res) => { res.end('Bot Active'); }).listen(process.env.PORT || 3000);
 
 const TelegramBot = require('node-telegram-bot-api');
 const ccxt = require('ccxt');
@@ -13,32 +10,35 @@ const axios = require('axios');
 const token = '8207677885:AAFxWZHismMi_pLgNlyV1CX8q_rwZF2l78k';
 const chatId = '1153254394';
 const bot = new TelegramBot(token, { polling: false });
-const exchange = new ccxt.binance();
+
+// --- שינוי קריטי: עוברים ל-BYBIT כדי לעקוף את החסימה של Render ---
+const exchange = new ccxt.bybit(); 
 
 const watchlist = [
     'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 
     'DOGE/USDT', 'PEPE/USDT', 'WIF/USDT', 'BONK/USDT'
 ];
 
-bot.sendMessage(chatId, "🚀 מאיר, הבוט המלא באוויר!\n- יעד רווח: 10$ לעסקה 💰\n- רף: 60%+ 🎲\n- שיטת הבוקס + פילטר ווליום פעילים 📦");
+bot.sendMessage(chatId, "✅ מאיר, עברנו לנתונים של Bybit! החסימה של Binance נעקפה.");
 
 async function getNewsSentiment() {
     try {
         const response = await axios.get('https://cryptopanic.com/api/v1/posts/?auth_token=wlkH1JdX7Rtn8BOklWBTZT3dWrLk29YS&public=true');
         const news = response.data.results;
         let score = 50; 
-        const positiveWords = ['bullish', 'launch', 'pump', 'adoption', 'etf', 'approved', 'moon'];
-        const negativeWords = ['bearish', 'hack', 'dump', 'ban', 'crash', 'lawsuit', 'drop'];
-        news.slice(0, 15).forEach(post => {
+        const positiveWords = ['bullish', 'pump', 'moon', 'buy'];
+        const negativeWords = ['bearish', 'dump', 'crash', 'sell'];
+        news.slice(0, 10).forEach(post => {
             const title = post.title.toLowerCase();
-            positiveWords.forEach(word => { if(title.includes(word)) score += 4; });
-            negativeWords.forEach(word => { if(title.includes(word)) score -= 4; });
+            positiveWords.forEach(w => { if(title.includes(w)) score += 5; });
+            negativeWords.forEach(w => { if(title.includes(w)) score -= 5; });
         });
-        return Math.min(Math.max(score, 10), 90); 
+        return Math.min(Math.max(score, 10), 90);
     } catch (e) { return 50; }
 }
 
 async function masterTradingBot() {
+    console.log('--- סריקה ב-Bybit: ' + new Date().toLocaleTimeString() + ' ---');
     const sentiment = await getNewsSentiment();
     for (const symbol of watchlist) {
         try {
@@ -75,23 +75,15 @@ async function masterTradingBot() {
                 const tpPrice = signal === "LONG 🟢" ? currentPrice * (1 + tpPercent) : currentPrice * (1 - tpPercent);
 
                 const msg = `🎲 **איתות Scalping (${winChance.toFixed(0)}%)** 🎲\n\n` +
-                            `🪙 מטבע: **${symbol}**\n` +
+                            `🪙 מטבע: **${symbol} (Bybit)**\n` +
                             `📊 פעולה: **${signal}**\n` +
-                            `💰 מחיר כניסה: $${currentPrice}\n\n` +
-                            `🛒 **כמות לקנייה לרווח של 10$:**\n` +
-                            `➡️ לקנות: **${amountToBuy.toFixed(symbol.includes('PEPE') ? 0 : 3)} יחידות**\n` +
-                            `🎯 יעד רווח (TP): $${tpPrice.toFixed(symbol.includes('PEPE') ? 8 : 4)}`;
+                            `💰 כניסה: $${currentPrice}\n\n` +
+                            `🛒 **כמות לרווח 10$:**\n` +
+                            `➡️ ${amountToBuy.toFixed(symbol.includes('PEPE') ? 0 : 3)} יחידות\n` +
+                            `🎯 יעד: $${tpPrice.toFixed(symbol.includes('PEPE') ? 8 : 4)}`;
                 await bot.sendMessage(chatId, msg);
             }
-
-            if (currentPrice > boxHigh && currentVolume > avgVolume * 1.3) {
-                const boxMsg = `📦 **פריצת בוקס - 10$ פוטנציאלי** 📦\n` +
-                               `🚀 **${symbol}** פרץ למעלה!\n` +
-                               `🎲 סיכוי הצלחה: 84%`;
-                await bot.sendMessage(chatId, boxMsg);
-            }
-
-        } catch (e) { console.error(e.message); }
+        } catch (e) { console.log("Bybit Error: " + e.message); }
     }
 }
 
